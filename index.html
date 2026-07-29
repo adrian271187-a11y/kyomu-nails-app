@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <style>
   :root{
     --bg-deep:#E9CAC7;
@@ -301,6 +302,21 @@
 
 <!-- ===================== ADMIN ===================== -->
 <div class="screen wide" id="screen-admin">
+
+  <div class="card" id="admin-login" style="max-width:360px; margin:0 auto;">
+    <h2 style="margin-top:0;">Acceso de administrador</h2>
+    <label>Usuario</label>
+    <input id="admin-email" type="text" placeholder="tu usuario" autocapitalize="off" autocomplete="username">
+    <label>Contraseña</label>
+    <input id="admin-password" type="password" placeholder="••••••••">
+    <button class="btn" id="admin-login-btn" style="width:100%;">Iniciar sesión</button>
+    <p class="note" id="admin-login-error" style="color:var(--rose-dark);"></p>
+  </div>
+
+  <div id="admin-content" style="display:none;">
+  <div style="text-align:right; margin-bottom:10px;">
+    <a href="#" id="admin-logout" style="font-size:0.78rem; color:var(--text-muted);">Cerrar sesión</a>
+  </div>
   <div class="admin-nav">
     <button class="active" data-admin="agenda">Agenda diaria</button>
     <button data-admin="calendario">Calendario</button>
@@ -345,6 +361,7 @@
       <div class="stat-card"><div class="num" id="stat-frecuente">—</div><div class="lbl">Cliente más frecuente</div></div>
     </div>
   </div>
+  </div>
 </div>
 
 <div class="lightbox" id="lightbox">
@@ -383,11 +400,13 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
 
 let appointments = { hoy: [], manana: [] };
 let queue = [];
 let clientHistory = {};
 let booking = { service:null, date:'hoy', start:null };
+let unsubClients = null;
 
 function isScreenActive(id){
   const el = document.getElementById(id);
@@ -413,11 +432,48 @@ db.collection('queue').orderBy('createdAt').onSnapshot(snap=>{
   if(isScreenActive('screen-espera')) renderEspera();
 });
 
-db.collection('clients').onSnapshot(snap=>{
-  const ch = {};
-  snap.forEach(doc=>{ ch[doc.id] = doc.data(); });
-  clientHistory = ch;
-  if(isScreenActive('screen-admin')) renderAdmin();
+// ---------- Acceso de administrador (correo y contraseña) ----------
+auth.onAuthStateChanged(user=>{
+  const loginBox = document.getElementById('admin-login');
+  const content = document.getElementById('admin-content');
+  if(!loginBox || !content) return;
+  if(user){
+    loginBox.style.display = 'none';
+    content.style.display = 'block';
+    if(!unsubClients){
+      unsubClients = db.collection('clients').onSnapshot(snap=>{
+        const ch = {};
+        snap.forEach(doc=>{ ch[doc.id] = doc.data(); });
+        clientHistory = ch;
+        if(isScreenActive('screen-admin')) renderAdmin();
+      });
+    }
+    renderAdmin();
+  } else {
+    loginBox.style.display = 'block';
+    content.style.display = 'none';
+    if(unsubClients){ unsubClients(); unsubClients = null; }
+    clientHistory = {};
+  }
+});
+
+document.getElementById('admin-login-btn').addEventListener('click', async ()=>{
+  const usuario = document.getElementById('admin-email').value.trim();
+  const email = usuario.includes('@') ? usuario : (usuario.toLowerCase() + '@kyomunails.local');
+  const pass = document.getElementById('admin-password').value;
+  const errorEl = document.getElementById('admin-login-error');
+  errorEl.textContent = '';
+  try{
+    await auth.signInWithEmailAndPassword(email, pass);
+  } catch(err){
+    errorEl.textContent = 'Usuario o contraseña incorrectos.';
+  }
+});
+
+document.getElementById('admin-logout').addEventListener('click', (e)=>{
+  e.preventDefault();
+  auth.signOut();
+  document.querySelector('[data-tab="cliente"]').click();
 });
 
 function svcById(id){ return SERVICES.find(s=>s.id===id); }
