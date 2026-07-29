@@ -356,16 +356,16 @@
     <a href="#" id="admin-logout" style="font-size:0.78rem; color:var(--text-muted);">Cerrar sesión</a>
   </div>
   <div class="admin-nav">
-    <button class="active" data-admin="agenda">Agenda diaria</button>
+    <button class="active" data-admin="agenda">Agenda</button>
     <button data-admin="calendario">Calendario</button>
     <button data-admin="clientes">Clientes</button>
     <button data-admin="stats">Estadísticas</button>
   </div>
 
   <div class="card" id="admin-agenda">
-    <h3>Agenda de hoy</h3>
+    <h3>Agenda</h3>
     <table>
-      <thead><tr><th>Hora</th><th>Cliente</th><th>Servicio</th><th></th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Servicio</th><th></th></tr></thead>
       <tbody id="agenda-body"></tbody>
     </table>
   </div>
@@ -1007,16 +1007,29 @@ document.getElementById('cal-mes-prev').addEventListener('click', ()=>{ calMonth
 document.getElementById('cal-mes-next').addEventListener('click', ()=>{ calMonthOffset++; renderMesCalendario(); });
 document.getElementById('cal-mes-hoy').addEventListener('click', ()=>{ calMonthOffset=0; renderMesCalendario(); });
 
+function formatFechaCorta(dateStr){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const nombresCortos = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return `${d} ${nombresCortos[m-1]}`;
+}
+
 function renderAdmin(){
   const citasDeHoy = appointments[HOY_STR] || [];
 
-  // Agenda
+  // Agenda (todas las citas agendadas, de cualquier fecha)
+  const todasLasCitas = [];
+  Object.keys(appointments).forEach(fecha=>{
+    appointments[fecha].forEach(a=> todasLasCitas.push(Object.assign({fecha}, a)));
+  });
+  todasLasCitas.sort((a,b)=> a.fecha===b.fecha ? a.start-b.start : (a.fecha<b.fecha?-1:1));
+
   const body = document.getElementById('agenda-body');
   body.innerHTML='';
-  citasDeHoy.slice().sort((a,b)=>a.start-b.start).forEach(a=>{
+  todasLasCitas.forEach(a=>{
     const svc = svcById(a.service);
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${SLOT_LABELS[a.start]}</td><td style="font-family:'Work Sans';">${a.name}</td><td>${svc.name}</td><td style="white-space:nowrap;"></td>`;
+    tr.innerHTML = `<td>${formatFechaCorta(a.fecha)}</td><td>${SLOT_LABELS[a.start]}</td><td style="font-family:'Work Sans';">${a.name}</td><td>${svc.name}</td><td style="white-space:nowrap;"></td>`;
     const accionesTd = tr.lastElementChild;
 
     const checkinBtn = document.createElement('button');
@@ -1045,8 +1058,13 @@ function renderAdmin(){
     body.appendChild(tr);
   });
 
-  // Calendario día (reusa agenda)
-  document.getElementById('cal-dia').innerHTML = document.getElementById('admin-agenda').querySelector('table').outerHTML;
+  // Calendario día (solo las citas de hoy)
+  const diaBody = citasDeHoy.slice().sort((a,b)=>a.start-b.start).map(a=>{
+    const svc = svcById(a.service);
+    return `<tr><td>${SLOT_LABELS[a.start]}</td><td style="font-family:'Work Sans';">${a.name}</td><td>${svc.name}</td></tr>`;
+  }).join('');
+  document.getElementById('cal-dia').innerHTML =
+    `<table><thead><tr><th>Hora</th><th>Cliente</th><th>Servicio</th></tr></thead><tbody>${diaBody}</tbody></table>`;
 
   // Calendario semana (mismo estilo que el mes, con navegación)
   renderSemanaCalendario();
