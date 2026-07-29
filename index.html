@@ -180,10 +180,7 @@
   .stat-card{ background:var(--bg-panel-2); border:1px solid var(--line); border-radius:12px; padding:16px; }
   .stat-card .num{ font-family:'Cormorant Garamond'; font-size:2rem; color:var(--blush); }
   .stat-card .lbl{ font-size:0.76rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; }
-  .cal-week{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
-  .cal-day{ background:var(--bg-panel-2); border:1px solid var(--line); border-radius:8px; padding:8px 4px; text-align:center; font-size:0.75rem; }
-  .cal-day .d{ font-family:'IBM Plex Mono'; color:var(--gold); font-size:0.9rem; }
-  .cal-day.today{ border-color:var(--gold); box-shadow:0 0 0 1px var(--gold) inset; }
+  .cal-week{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
   .cal-month{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
   .cal-mheader{ text-align:center; font-size:0.7rem; color:var(--text-muted); font-family:'IBM Plex Mono'; padding-bottom:4px; }
   .cal-mday{ min-height:74px; background:var(--bg-panel-2); border:1px solid var(--line); border-radius:6px; display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; font-size:0.72rem; padding:4px; overflow:hidden; }
@@ -283,6 +280,7 @@
       <button class="btn secondary small" id="btn-nueva-cita" style="margin-left:8px;">Reservar otra cita</button>
       <div><button class="btn secondary small" id="btn-agregar-calendario" style="margin-top:12px;">📅 Agregar recordatorio a mi calendario</button></div>
       <div><a href="#" id="btn-cancelar-confirmado" style="font-size:0.78rem; color:var(--rose-dark); display:inline-block; margin-top:14px;">Cancelar esta cita</a></div>
+      <p class="note" id="conf-auto-return" style="margin-top:10px;"></p>
     </div>
   </div>
 
@@ -368,7 +366,15 @@
       <button data-cal="mes">Mes</button>
     </div>
     <div id="cal-dia"></div>
-    <div id="cal-semana" style="display:none;" class="cal-week"></div>
+    <div id="cal-semana" style="display:none;">
+      <div class="cal-mnav">
+        <button id="cal-sem-hoy" class="btn secondary small">Hoy</button>
+        <button id="cal-sem-prev" class="cal-arrow" aria-label="Semana anterior">‹</button>
+        <span id="cal-sem-label" class="cal-mlabel"></span>
+        <button id="cal-sem-next" class="cal-arrow" aria-label="Semana siguiente">›</button>
+      </div>
+      <div class="cal-week" id="cal-sem-grid"></div>
+    </div>
     <div id="cal-mes" style="display:none;">
       <div class="cal-mnav">
         <button id="cal-mes-hoy" class="btn secondary small">Hoy</button>
@@ -558,7 +564,9 @@ document.getElementById('admin-logout').addEventListener('click', (e)=>{
   document.querySelector('[data-tab="cliente"]').click();
 });
 
-function svcById(id){ return SERVICES.find(s=>s.id===id); }
+function svcById(id){
+  return SERVICES.find(s=>s.id===id) || {id:id, name:'Servicio anterior', price:0, slots:1, color:'#999999', photo:''};
+}
 
 function occupiedSlots(date){
   const occ = new Set();
@@ -701,6 +709,7 @@ document.getElementById('btn-confirmar').addEventListener('click', async ()=>{
     document.getElementById('conf-detalle').textContent =
       `${svc.name} · ${formatFecha(booking.date)} ${SLOT_LABELS[booking.start]}`;
     goToStep('confirmado');
+    iniciarRegresoAutomatico();
   } catch(err){
     alert('No se pudo guardar la cita. Intenta de nuevo.');
     console.error(err);
@@ -709,6 +718,7 @@ document.getElementById('btn-confirmar').addEventListener('click', async ()=>{
   }
 });
 document.getElementById('btn-checkin').addEventListener('click', async ()=>{
+  cancelarRegresoAutomatico();
   const nombre = document.getElementById('conf-nombre').textContent;
   await db.collection('queue').add({
     name: nombre,
@@ -813,6 +823,34 @@ function goToStep(step){
   if(step==='servicio') renderServicios();
   if(step==='horario') renderHorario();
   if(step==='form') renderForm();
+  if(step!=='confirmado') cancelarRegresoAutomatico();
+}
+
+let regresoAutoTimer = null;
+let regresoAutoInterval = null;
+function cancelarRegresoAutomatico(){
+  if(regresoAutoTimer){ clearTimeout(regresoAutoTimer); regresoAutoTimer = null; }
+  if(regresoAutoInterval){ clearInterval(regresoAutoInterval); regresoAutoInterval = null; }
+  const nota = document.getElementById('conf-auto-return');
+  if(nota) nota.textContent = '';
+}
+function iniciarRegresoAutomatico(){
+  cancelarRegresoAutomatico();
+  let segundos = 8;
+  const nota = document.getElementById('conf-auto-return');
+  nota.textContent = `Volviendo a la pantalla principal en ${segundos}s...`;
+  regresoAutoInterval = setInterval(()=>{
+    segundos--;
+    if(nota) nota.textContent = `Volviendo a la pantalla principal en ${segundos}s...`;
+  }, 1000);
+  regresoAutoTimer = setTimeout(()=>{
+    cancelarRegresoAutomatico();
+    booking = {service:null, date:document.getElementById('date-select').value || null, start:null};
+    document.getElementById('in-nombre').value='';
+    document.getElementById('in-telefono').value='';
+    document.getElementById('in-correo').value='';
+    goToStep('servicio');
+  }, segundos*1000);
 }
 
 // ---------- Sala de espera ----------
@@ -849,6 +887,48 @@ document.querySelectorAll('[data-cal]').forEach(b=>{
     });
   });
 });
+
+let calWeekOffset = 0;
+
+function celdaCalendario(dateObj, esHoy, esDelMes){
+  const ds = fechaISO(dateObj);
+  const citasDia = (appointments[ds] || []).slice().sort((a,b)=>a.start-b.start);
+  const maxVisible = 3;
+  let eventosHtml = citasDia.slice(0,maxVisible).map(a=>{
+    const svc = svcById(a.service);
+    return `<div class="cal-evt" title="${SLOT_LABELS[a.start]} ${a.name} - ${svc?svc.name:''}">${SLOT_LABELS[a.start]} ${a.name}</div>`;
+  }).join('');
+  if(citasDia.length > maxVisible) eventosHtml += `<div class="cal-evt-more">+${citasDia.length - maxVisible} más</div>`;
+  const clases = ['cal-mday'];
+  if(esHoy) clases.push('today');
+  if(esDelMes===false) clases.push('other-month');
+  return `<div class="${clases.join(' ')}"><span class="num">${dateObj.getDate()}</span>${eventosHtml}</div>`;
+}
+
+function renderSemanaCalendario(){
+  const nombresCortos = ['L','M','X','J','V','S','D'];
+  const diaSemanaHoy = HOY.getDay();
+  const offsetLunes = diaSemanaHoy===0 ? 6 : diaSemanaHoy-1;
+  const lunesHoy = new Date(HOY.getFullYear(), HOY.getMonth(), HOY.getDate()-offsetLunes);
+  const lunes = new Date(lunesHoy.getFullYear(), lunesHoy.getMonth(), lunesHoy.getDate() + calWeekOffset*7);
+
+  let html = nombresCortos.map(n=>`<div class="cal-mheader">${n}</div>`).join('');
+  for(let i=0;i<7;i++){
+    const d = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate()+i);
+    html += celdaCalendario(d, fechaISO(d)===HOY_STR, true);
+  }
+  document.getElementById('cal-sem-grid').innerHTML = html;
+
+  const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate()+6);
+  const nombresMesesCortos = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const etiqueta = lunes.getMonth()===domingo.getMonth()
+    ? `${lunes.getDate()} - ${domingo.getDate()} ${nombresMesesCortos[lunes.getMonth()]} ${domingo.getFullYear()}`
+    : `${lunes.getDate()} ${nombresMesesCortos[lunes.getMonth()]} - ${domingo.getDate()} ${nombresMesesCortos[domingo.getMonth()]} ${domingo.getFullYear()}`;
+  document.getElementById('cal-sem-label').textContent = etiqueta;
+}
+document.getElementById('cal-sem-prev').addEventListener('click', ()=>{ calWeekOffset--; renderSemanaCalendario(); });
+document.getElementById('cal-sem-next').addEventListener('click', ()=>{ calWeekOffset++; renderSemanaCalendario(); });
+document.getElementById('cal-sem-hoy').addEventListener('click', ()=>{ calWeekOffset=0; renderSemanaCalendario(); });
 
 let calMonthOffset = 0;
 
@@ -935,19 +1015,8 @@ function renderAdmin(){
   // Calendario día (reusa agenda)
   document.getElementById('cal-dia').innerHTML = document.getElementById('admin-agenda').querySelector('table').outerHTML;
 
-  // Calendario semana (fechas reales de esta semana, lunes a domingo)
-  const nombresDias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-  const diaSemanaHoy = HOY.getDay(); // 0=Dom..6=Sáb
-  const offsetLunes = diaSemanaHoy===0 ? 6 : diaSemanaHoy-1;
-  const lunes = new Date(HOY.getFullYear(), HOY.getMonth(), HOY.getDate()-offsetLunes);
-  let semanaHtml = '';
-  for(let i=0;i<7;i++){
-    const d = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate()+i);
-    const ds = fechaISO(d);
-    const count = (appointments[ds] || []).length;
-    semanaHtml += `<div class="cal-day${ds===HOY_STR?' today':''}"><div>${nombresDias[i]}</div><div class="d">${count}</div></div>`;
-  }
-  document.getElementById('cal-semana').innerHTML = semanaHtml;
+  // Calendario semana (mismo estilo que el mes, con navegación)
+  renderSemanaCalendario();
 
   // Calendario mes (mes real completo, con semanas llenas y navegación)
   renderMesCalendario();
