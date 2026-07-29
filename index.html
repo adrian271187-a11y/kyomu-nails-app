@@ -678,6 +678,21 @@ function renderAdmin(){
 // Init
 renderServicios();
 renderEspera();
+
+// ---------- Enlaces directos por pantalla (#cliente, #galeria, #espera, #admin) ----------
+function activarPorHash(){
+  const destino = location.hash.replace('#','');
+  const validos = ['cliente','galeria','espera','admin'];
+  if(!validos.includes(destino)) return;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===destino));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+destino).classList.add('active');
+  if(destino==='espera') renderEspera();
+  if(destino==='admin') renderAdmin();
+  if(destino==='galeria') renderGaleria();
+}
+window.addEventListener('hashchange', activarPorHash);
+activarPorHash();
 </script>
 
 </body>
