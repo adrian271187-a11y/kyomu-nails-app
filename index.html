@@ -582,6 +582,7 @@ db.collection('appointments').onSnapshot(snap=>{
 db.collection('queue').orderBy('createdAt').onSnapshot(snap=>{
   queue = snap.docs.map(d=>({id:d.id, name:d.data().name, service:d.data().service}));
   if(isScreenActive('screen-espera')) renderEspera();
+  if(isScreenActive('screen-admin')) renderAdmin();
 });
 
 // ---------- Acceso de administrador (correo y contraseña) ----------
@@ -627,6 +628,19 @@ document.getElementById('admin-logout').addEventListener('click', (e)=>{
   auth.signOut();
   document.querySelector('[data-tab="cliente"]').click();
 });
+
+// ---------- Cierre de sesión automático por inactividad (10 minutos) ----------
+let ultimaActividadAdmin = Date.now();
+['mousemove','mousedown','keydown','click','touchstart','scroll'].forEach(evt=>{
+  document.addEventListener(evt, ()=>{ ultimaActividadAdmin = Date.now(); }, {passive:true});
+});
+setInterval(()=>{
+  const DIEZ_MIN = 10*60*1000;
+  if(auth.currentUser && (Date.now() - ultimaActividadAdmin) > DIEZ_MIN){
+    auth.signOut();
+    if(isScreenActive('screen-admin')) document.querySelector('[data-tab="cliente"]').click();
+  }
+}, 20000);
 
 function svcById(id){
   return SERVICES.find(s=>s.id===id) || {id:id, name:'Servicio anterior', price:0, slots:1, color:'#999999', photo:''};
