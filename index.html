@@ -285,13 +285,14 @@
 
   <div id="step-confirmado" style="display:none;">
     <div class="card" style="text-align:center;">
-      <div class="eyebrow" style="color:var(--sage);">Cita confirmada</div>
+      <div class="eyebrow" style="color:var(--sage);">Reserva recibida</div>
       <h2 id="conf-nombre" style="margin:8px 0 2px;"></h2>
       <p class="note" id="conf-detalle" style="font-size:0.9rem; color:var(--text-light);"></p>
+      <p class="note" style="font-size:0.82rem; color:var(--text-muted); margin-top:-4px;">Tu cita está pendiente de confirmación. Te avisaremos por correo o WhatsApp en cuanto la confirmemos.</p>
       <button class="btn" id="btn-checkin">Ya llegué — hacer check-in</button>
       <button class="btn secondary small" id="btn-nueva-cita" style="margin-left:8px;">Reservar otra cita</button>
       <div><button class="btn secondary small" id="btn-agregar-calendario" style="margin-top:12px;">📅 Agregar recordatorio a mi calendario</button></div>
-      <div><a href="#" id="btn-whatsapp-confirmar" target="_blank" rel="noopener" class="btn secondary small" style="margin-top:8px; display:inline-block; text-decoration:none;">📲 Recibir confirmación por WhatsApp</a></div>
+      <div><a href="#" id="btn-whatsapp-confirmar" target="_blank" rel="noopener" class="btn secondary small" style="margin-top:8px; display:inline-block; text-decoration:none;">📲 Avisar que reservé por WhatsApp</a></div>
       <div><a href="#" id="btn-cancelar-confirmado" style="font-size:0.78rem; color:var(--rose-dark); display:inline-block; margin-top:14px;">Cancelar esta cita</a></div>
       <p class="note" id="conf-auto-return" style="margin-top:10px;"></p>
     </div>
@@ -368,7 +369,7 @@
   <div class="card" id="admin-agenda">
     <h3>Agenda</h3>
     <table>
-      <thead><tr><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Servicio</th><th></th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Servicio</th><th>Estado</th><th></th></tr></thead>
       <tbody id="agenda-body"></tbody>
     </table>
 
@@ -577,7 +578,7 @@ db.collection('appointments').onSnapshot(snap=>{
   snap.forEach(doc=>{
     const d = doc.data();
     if(!grouped[d.day]) grouped[d.day] = [];
-    grouped[d.day].push({id:doc.id, start:d.start, service:d.service, name:d.name});
+    grouped[d.day].push({id:doc.id, start:d.start, service:d.service, name:d.name, tel:d.tel, correo:d.correo, estado:d.estado || 'confirmada'});
   });
   appointments = grouped;
   if(isScreenActive('screen-cliente')){
@@ -785,7 +786,8 @@ document.getElementById('btn-confirmar').addEventListener('click', async ()=>{
   btn.disabled = true; btn.textContent = 'Guardando...';
   try{
     const ref = await db.collection('appointments').add({
-      day: realDate(booking.date), start: booking.start, service: booking.service, name: nombre, tel: telefono,
+      day: realDate(booking.date), start: booking.start, service: booking.service, name: nombre, tel: telefono, correo: correo,
+      estado: 'pendiente',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     booking.appointmentId = ref.id;
@@ -801,18 +803,7 @@ document.getElementById('btn-confirmar').addEventListener('click', async ()=>{
     goToStep('confirmado');
     iniciarRegresoAutomatico();
 
-    if(correo){
-      emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-        to_name: nombre,
-        to_email: correo,
-        service_name: svc.name,
-        appointment_date: formatFecha(booking.date),
-        appointment_time: SLOT_LABELS[booking.start],
-        business_name: NOMBRE_NEGOCIO
-      }).catch(err=>console.error('EmailJS error:', err));
-    }
-
-    const mensajeWhatsapp = `Hola! Confirmo mi cita en ${NOMBRE_NEGOCIO}: ${detalleTexto}. A nombre de ${nombre}.`;
+    const mensajeWhatsapp = `Hola! Acabo de reservar una cita en ${NOMBRE_NEGOCIO}: ${detalleTexto}. A nombre de ${nombre}. Quedo atenta a la confirmación.`;
     document.getElementById('btn-whatsapp-confirmar').href =
       'https://wa.me/?text=' + encodeURIComponent(mensajeWhatsapp);
   } catch(err){
@@ -1107,9 +1098,55 @@ function renderAdmin(){
   body.innerHTML='';
   todasLasCitas.forEach(a=>{
     const svc = svcById(a.service);
+    const esPendiente = a.estado === 'pendiente';
+    const badge = esPendiente
+      ? `<span style="color:var(--rose-dark); font-weight:600;">Pendiente</span>`
+      : `<span style="color:var(--sage); font-weight:600;">Confirmada</span>`;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${formatFechaCorta(a.fecha)}</td><td>${SLOT_LABELS[a.start]}</td><td style="font-family:'Work Sans';">${a.name}</td><td>${svc.name}</td><td style="white-space:nowrap;"></td>`;
+    tr.innerHTML = `<td>${formatFechaCorta(a.fecha)}</td><td>${SLOT_LABELS[a.start]}</td><td style="font-family:'Work Sans';">${a.name}</td><td>${svc.name}</td><td>${badge}</td><td style="white-space:nowrap;"></td>`;
     const accionesTd = tr.lastElementChild;
+
+    if(esPendiente){
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'btn small';
+      confirmBtn.textContent = 'Confirmar';
+      confirmBtn.style.marginRight = '6px';
+      confirmBtn.addEventListener('click', async ()=>{
+        confirmBtn.disabled = true; confirmBtn.textContent = 'Confirmando...';
+        try{
+          await db.collection('appointments').doc(a.id).update({ estado: 'confirmada' });
+          if(a.correo){
+            emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+              to_name: a.name,
+              to_email: a.correo,
+              service_name: svc.name,
+              appointment_date: formatFechaCorta(a.fecha),
+              appointment_time: SLOT_LABELS[a.start],
+              business_name: NOMBRE_NEGOCIO
+            }).catch(err=>console.error('EmailJS error:', err));
+          }
+        } catch(err){
+          alert('No se pudo confirmar la cita.');
+          confirmBtn.disabled = false; confirmBtn.textContent = 'Confirmar';
+        }
+      });
+      accionesTd.appendChild(confirmBtn);
+
+      if(a.tel && a.tel !== '—'){
+        const numeroLimpio = a.tel.replace(/[^0-9]/g,'');
+        const numeroConPais = numeroLimpio.length === 8 ? '506'+numeroLimpio : numeroLimpio;
+        const mensaje = `Hola ${a.name}! Te confirmamos tu cita de ${svc.name} el ${formatFechaCorta(a.fecha)} a las ${SLOT_LABELS[a.start]} en ${NOMBRE_NEGOCIO}.`;
+        const waBtn = document.createElement('a');
+        waBtn.className = 'btn secondary small';
+        waBtn.textContent = '📲';
+        waBtn.title = 'Confirmar por WhatsApp';
+        waBtn.target = '_blank';
+        waBtn.rel = 'noopener';
+        waBtn.style.marginRight = '6px';
+        waBtn.href = `https://wa.me/${numeroConPais}?text=${encodeURIComponent(mensaje)}`;
+        accionesTd.appendChild(waBtn);
+      }
+    }
 
     const checkinBtn = document.createElement('button');
     checkinBtn.className = 'btn small';
