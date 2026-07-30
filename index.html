@@ -292,7 +292,6 @@
       <button class="btn" id="btn-checkin">Ya llegué — hacer check-in</button>
       <button class="btn secondary small" id="btn-nueva-cita" style="margin-left:8px;">Reservar otra cita</button>
       <div><button class="btn secondary small" id="btn-agregar-calendario" style="margin-top:12px;">📅 Agregar recordatorio a mi calendario</button></div>
-      <div><a href="#" id="btn-whatsapp-confirmar" target="_blank" rel="noopener" class="btn secondary small" style="margin-top:8px; display:inline-block; text-decoration:none;">📲 Avisar que reservé por WhatsApp</a></div>
       <div><a href="#" id="btn-cancelar-confirmado" style="font-size:0.78rem; color:var(--rose-dark); display:inline-block; margin-top:14px;">Cancelar esta cita</a></div>
       <p class="note" id="conf-auto-return" style="margin-top:10px;"></p>
     </div>
@@ -802,10 +801,6 @@ document.getElementById('btn-confirmar').addEventListener('click', async ()=>{
     document.getElementById('conf-detalle').textContent = detalleTexto;
     goToStep('confirmado');
     iniciarRegresoAutomatico();
-
-    const mensajeWhatsapp = `Hola! Acabo de reservar una cita en ${NOMBRE_NEGOCIO}: ${detalleTexto}. A nombre de ${nombre}. Quedo atenta a la confirmación.`;
-    document.getElementById('btn-whatsapp-confirmar').href =
-      'https://wa.me/?text=' + encodeURIComponent(mensajeWhatsapp);
   } catch(err){
     alert('No se pudo guardar la cita. Intenta de nuevo.');
     console.error(err);
@@ -1131,21 +1126,21 @@ function renderAdmin(){
         }
       });
       accionesTd.appendChild(confirmBtn);
+    }
 
-      if(a.tel && a.tel !== '—'){
-        const numeroLimpio = a.tel.replace(/[^0-9]/g,'');
-        const numeroConPais = numeroLimpio.length === 8 ? '506'+numeroLimpio : numeroLimpio;
-        const mensaje = `Hola ${a.name}! Te confirmamos tu cita de ${svc.name} el ${formatFechaCorta(a.fecha)} a las ${SLOT_LABELS[a.start]} en ${NOMBRE_NEGOCIO}.`;
-        const waBtn = document.createElement('a');
-        waBtn.className = 'btn secondary small';
-        waBtn.textContent = '📲';
-        waBtn.title = 'Confirmar por WhatsApp';
-        waBtn.target = '_blank';
-        waBtn.rel = 'noopener';
-        waBtn.style.marginRight = '6px';
-        waBtn.href = `https://wa.me/${numeroConPais}?text=${encodeURIComponent(mensaje)}`;
-        accionesTd.appendChild(waBtn);
-      }
+    if(a.tel && a.tel !== '—'){
+      const numeroLimpio = a.tel.replace(/[^0-9]/g,'');
+      const numeroConPais = numeroLimpio.length === 8 ? '506'+numeroLimpio : numeroLimpio;
+      const mensaje = `Hola ${a.name}! Te confirmamos tu cita de ${svc.name} el ${formatFechaCorta(a.fecha)} a las ${SLOT_LABELS[a.start]} en ${NOMBRE_NEGOCIO}.`;
+      const waBtn = document.createElement('a');
+      waBtn.className = 'btn secondary small';
+      waBtn.textContent = '📲';
+      waBtn.title = 'Enviar por WhatsApp';
+      waBtn.target = '_blank';
+      waBtn.rel = 'noopener';
+      waBtn.style.marginRight = '6px';
+      waBtn.href = `https://wa.me/${numeroConPais}?text=${encodeURIComponent(mensaje)}`;
+      accionesTd.appendChild(waBtn);
     }
 
     const checkinBtn = document.createElement('button');
