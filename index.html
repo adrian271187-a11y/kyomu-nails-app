@@ -360,6 +360,7 @@
     <button data-admin="calendario">Calendario</button>
     <button data-admin="clientes">Clientes</button>
     <button data-admin="stats">Estadísticas</button>
+    <button data-admin="historial">Historial</button>
   </div>
 
   <div class="card" id="admin-agenda">
@@ -413,6 +414,23 @@
       <div class="stat-card"><div class="num" id="stat-top-servicio">—</div><div class="lbl">Servicio más vendido</div></div>
       <div class="stat-card"><div class="num" id="stat-frecuente">—</div><div class="lbl">Cliente más frecuente</div></div>
     </div>
+  </div>
+
+  <div class="card" id="admin-historial" style="display:none;">
+    <h3>Historial</h3>
+    <p class="note" style="margin-top:-4px;">Un resumen automático de cada día y cada mes, calculado a partir de las citas guardadas. Cada día empieza en cero.</p>
+    <div class="admin-nav" style="margin-bottom:14px;">
+      <button class="active" data-hist="dia">Diario</button>
+      <button data-hist="mes">Mensual</button>
+    </div>
+    <table id="historial-tabla-dia">
+      <thead><tr><th>Día</th><th>Citas</th><th>Ventas</th><th>Servicio más vendido</th></tr></thead>
+      <tbody id="historial-dia-body"></tbody>
+    </table>
+    <table id="historial-tabla-mes" style="display:none;">
+      <thead><tr><th>Mes</th><th>Citas</th><th>Ventas</th><th>Servicio más vendido</th></tr></thead>
+      <tbody id="historial-mes-body"></tbody>
+    </table>
   </div>
   </div>
 </div>
@@ -919,7 +937,7 @@ document.querySelectorAll('.admin-nav [data-admin]').forEach(b=>{
   b.addEventListener('click', ()=>{
     document.querySelectorAll('.admin-nav [data-admin]').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
-    ['agenda','calendario','clientes','stats'].forEach(s=>{
+    ['agenda','calendario','clientes','stats','historial'].forEach(s=>{
       document.getElementById('admin-'+s).style.display = (s===b.dataset.admin?'block':'none');
     });
   });
@@ -1106,13 +1124,100 @@ function renderAdmin(){
   document.getElementById('stat-ventas').textContent = '₡'+ventasHoy.toLocaleString('es-CR');
   document.getElementById('stat-top-servicio').textContent = topServicioId ? svcById(topServicioId).name : '—';
   document.getElementById('stat-frecuente').textContent = topCliente ? topCliente[0] : '—';
+
+  renderHistorialMensual();
+  renderHistorialDiario();
 }
+
+const NOMBRES_MESES_HIST = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function agruparCitasPorClave(largoClave){
+  const grupos = {};
+  Object.keys(appointments).forEach(fecha=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
+    const clave = fecha.slice(0, largoClave);
+    if(!grupos[clave]) grupos[clave] = { citas:0, ventas:0, servicios:{} };
+    appointments[fecha].forEach(a=>{
+      const svc = svcById(a.service);
+      grupos[clave].citas++;
+      grupos[clave].ventas += svc.price;
+      grupos[clave].servicios[a.service] = (grupos[clave].servicios[a.service]||0) + 1;
+    });
+  });
+  return grupos;
+}
+
+function renderHistorialMensual(){
+  const meses = agruparCitasPorClave(7);
+  const claves = Object.keys(meses).sort().reverse();
+  const cuerpo = document.getElementById('historial-mes-body');
+  if(!cuerpo) return;
+  if(claves.length === 0){
+    cuerpo.innerHTML = '<tr><td colspan="4" style="font-family:\'Work Sans\';">Todavía no hay citas registradas.</td></tr>';
+    return;
+  }
+  cuerpo.innerHTML = claves.map(clave=>{
+    const [anio, mes] = clave.split('-').map(Number);
+    const info = meses[clave];
+    const topId = Object.keys(info.servicios).sort((a,b)=>info.servicios[b]-info.servicios[a])[0];
+    const topNombre = topId ? svcById(topId).name : '—';
+    return `<tr><td style="font-family:'Work Sans';">${NOMBRES_MESES_HIST[mes-1]} ${anio}</td><td>${info.citas}</td><td>₡${info.ventas.toLocaleString('es-CR')}</td><td>${topNombre}</td></tr>`;
+  }).join('');
+}
+
+function renderHistorialDiario(){
+  const dias = agruparCitasPorClave(10);
+  const claves = Object.keys(dias).sort().reverse();
+  const cuerpo = document.getElementById('historial-dia-body');
+  if(!cuerpo) return;
+  if(claves.length === 0){
+    cuerpo.innerHTML = '<tr><td colspan="4" style="font-family:\'Work Sans\';">Todavía no hay citas registradas.</td></tr>';
+    return;
+  }
+  cuerpo.innerHTML = claves.map(clave=>{
+    const info = dias[clave];
+    const topId = Object.keys(info.servicios).sort((a,b)=>info.servicios[b]-info.servicios[a])[0];
+    const topNombre = topId ? svcById(topId).name : '—';
+    return `<tr><td style="font-family:'Work Sans';">${formatFechaCorta(clave)}</td><td>${info.citas}</td><td>₡${info.ventas.toLocaleString('es-CR')}</td><td>${topNombre}</td></tr>`;
+  }).join('');
+}
+
+document.querySelectorAll('#admin-historial .admin-nav [data-hist]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#admin-historial .admin-nav [data-hist]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('historial-tabla-dia').style.display = (b.dataset.hist==='dia'?'table':'none');
+    document.getElementById('historial-tabla-mes').style.display = (b.dataset.hist==='mes'?'table':'none');
+  });
+});
 
 // Init
 booking.date = HOY_STR;
 renderServicios();
 renderEspera();
-setInterval(()=>{ if(isScreenActive('screen-espera')) renderEspera(); }, 10000);
+setInterval(()=>{ if(isScreenActive('screen-espera')) renderEspera(); }, 15000);
+
+// ---------- Limpieza automática de la Sala de Espera después de las 9pm ----------
+async function limpiarSalaEsperaSiCorresponde(){
+  const ahora = new Date();
+  if(ahora.getHours() < 21) return;
+  const hoyActual = fechaISO(ahora);
+  try{
+    const metaRef = db.collection('meta').doc('limpiezaSalaEspera');
+    const snap = await metaRef.get();
+    const data = snap.exists ? snap.data() : {};
+    if(data.ultimaLimpieza === hoyActual) return;
+    const queueSnap = await db.collection('queue').get();
+    const borrados = [];
+    queueSnap.forEach(doc=> borrados.push(doc.ref.delete()));
+    await Promise.all(borrados);
+    await metaRef.set({ultimaLimpieza: hoyActual}, {merge:true});
+  } catch(err){
+    console.error('No se pudo limpiar la sala de espera', err);
+  }
+}
+limpiarSalaEsperaSiCorresponde();
+setInterval(limpiarSalaEsperaSiCorresponde, 60000);
 
 // ---------- Enlaces directos por pantalla (#cliente, #galeria, #espera, #admin) ----------
 function activarPorHash(){
