@@ -682,11 +682,24 @@ function renderServicios(){
 }
 
 // ---------- Paso 2: horario ----------
+function slotsPasadosHoy(){
+  const s = new Set();
+  if(booking.date !== HOY_STR) return s;
+  const ahora = new Date();
+  const minutosActuales = ahora.getHours()*60 + ahora.getMinutes();
+  SLOT_LABELS.forEach((label,i)=>{
+    const [h,m] = label.split(':').map(Number);
+    if(h*60+m < minutosActuales) s.add(i);
+  });
+  return s;
+}
+
 function renderHorario(){
   const grid = document.getElementById('time-grid');
   grid.innerHTML='';
   const svc = svcById(booking.service);
   const occ = occupiedSlots(booking.date);
+  slotsPasadosHoy().forEach(i=>occ.add(i));
   SLOT_LABELS.forEach((label,i)=>{
     const el = document.createElement('div');
     let cls='slot';
