@@ -369,6 +369,13 @@
       <thead><tr><th>Fecha</th><th>Hora</th><th>Cliente</th><th>Servicio</th><th></th></tr></thead>
       <tbody id="agenda-body"></tbody>
     </table>
+
+    <h3 style="margin-top:26px;">Sala de espera</h3>
+    <p class="note" style="margin-top:-4px;">Marca a alguien como atendido para que pase al siguiente turno.</p>
+    <table>
+      <thead><tr><th>Turno</th><th>Cliente</th><th>Servicio</th><th>Duración</th><th></th></tr></thead>
+      <tbody id="cola-body"></tbody>
+    </table>
   </div>
 
   <div class="card" id="admin-calendario" style="display:none;">
@@ -573,7 +580,7 @@ db.collection('appointments').onSnapshot(snap=>{
 });
 
 db.collection('queue').orderBy('createdAt').onSnapshot(snap=>{
-  queue = snap.docs.map(d=>({id:d.id, name:d.data().name}));
+  queue = snap.docs.map(d=>({id:d.id, name:d.data().name, service:d.data().service}));
   if(isScreenActive('screen-espera')) renderEspera();
 });
 
@@ -786,6 +793,7 @@ document.getElementById('btn-checkin').addEventListener('click', async ()=>{
   const nombre = document.getElementById('conf-nombre').textContent;
   await db.collection('queue').add({
     name: nombre,
+    service: booking.service,
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
   document.querySelector('[data-tab="espera"]').click();
@@ -918,6 +926,11 @@ function iniciarRegresoAutomatico(){
 }
 
 // ---------- Sala de espera ----------
+function duracionMin(q){
+  const svc = svcById(q.service);
+  return svc ? svc.slots*30 : 30;
+}
+
 function renderEspera(){
   const actual = queue[0];
   document.getElementById('turno-actual').textContent = actual ? actual.name : 'Sin turno activo';
@@ -929,7 +942,8 @@ function renderEspera(){
     li.innerHTML = `<span class="queue-num">${i+1}</span> ${q.name}`;
     ul.appendChild(li);
   });
-  document.getElementById('tiempo-estimado').textContent = (siguientes.length ? (siguientes.length*15) : 15) + ' minutos';
+  const totalMin = queue.reduce((sum,q)=>sum+duracionMin(q), 0);
+  document.getElementById('tiempo-estimado').textContent = (totalMin || 15) + ' minutos';
 }
 
 // ---------- Admin ----------
@@ -1070,6 +1084,7 @@ function renderAdmin(){
     checkinBtn.addEventListener('click', async ()=>{
       await db.collection('queue').add({
         name: a.name,
+        service: a.service,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       checkinBtn.textContent = 'En fila ✓';
@@ -1088,6 +1103,30 @@ function renderAdmin(){
 
     body.appendChild(tr);
   });
+
+  // Sala de espera (con opción de marcar como atendido)
+  const colaBody = document.getElementById('cola-body');
+  if(colaBody){
+    colaBody.innerHTML = '';
+    if(queue.length === 0){
+      colaBody.innerHTML = '<tr><td colspan="5" style="font-family:\'Work Sans\';">No hay nadie en la fila.</td></tr>';
+    } else {
+      queue.forEach((q,i)=>{
+        const svc = svcById(q.service);
+        const tr = document.createElement('tr');
+        const etiquetaTurno = i===0 ? 'Actual' : `#${i+1}`;
+        tr.innerHTML = `<td>${etiquetaTurno}</td><td style="font-family:'Work Sans';">${q.name}</td><td>${svc.name}</td><td>${svc.slots*30} min</td><td></td>`;
+        const finBtn = document.createElement('button');
+        finBtn.className = 'btn secondary small';
+        finBtn.textContent = 'Finalizar';
+        finBtn.addEventListener('click', async ()=>{
+          await db.collection('queue').doc(q.id).delete();
+        });
+        tr.lastElementChild.appendChild(finBtn);
+        colaBody.appendChild(tr);
+      });
+    }
+  }
 
   // Calendario día (solo las citas de hoy)
   const diaBody = citasDeHoy.slice().sort((a,b)=>a.start-b.start).map(a=>{
